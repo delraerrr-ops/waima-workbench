@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>美团歪马送酒 · 采销中台经营决策指挥舱 (PRD V1.0)</title>
+    <meta name="description" content="美团歪马送酒采销中台经营决策指挥舱，集成 DuPont 归因、商品四象限、价格弹性、全成本 UE 与供应商评分卡">
+    <!-- FontAwesome 图标库 CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js 可视化库 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="css/style.css?v=3.6.0">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航栏 (Top Navigation) -->
+        <header class="top-navbar">
+            <div class="brand-logo">
+                <div class="logo-icon"><i class="fa-solid fa-wine-glass"></i></div>
+                <div class="brand-text">
+                    <h1>美团歪马送酒 <span>采销中台经营决策指挥舱 (PRD V1.0)</span></h1>
+                    <p class="subtitle">Meituan Waimai | Alcohol Merchant Mid-Platform Operations & Strategy Cockpit</p>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <!-- 区域维度切分选择器 -->
+                <div class="data-slice-badge">
+                    <i class="fa-solid fa-earth-asia"></i> 区域维度：
+                    <select id="navbar-region-select" class="form-control-inline">
+                        <option value="ALL">全国大盘</option>
+                        <option value="EAST">华东大区 (上海/杭州)</option>
+                        <option value="SOUTH">华南大区 (广州/深圳)</option>
+                        <option value="NORTHEAST">东北大区 (沈阳/哈尔滨)</option>
+                        <option value="SOUTHWEST">西南大区 (成都/重庆)</option>
+                    </select>
+                </div>
+
+                <!-- T+0 小时级数据刷新指示器 -->
+                <div class="data-time-badge live-badge" id="t0-status-badge">
+                    <i class="fa-solid fa-bolt text-warning blink"></i> 
+                    <span id="t0-label">T+0 实时流: 16:00 (Flink)</span>
+                </div>
+
+                <button class="btn btn-outline" id="btn-open-manual-modal" style="background:#fff; border-color:var(--primary); color:var(--primary);">
+                    <i class="fa-solid fa-book-open"></i> 业务说明与指引
+                </button>
+
+                <button class="btn btn-primary" id="btn-edit-target">
+                    <i class="fa-solid fa-sliders"></i> 校准目标
+                </button>
+            </div>
+        </header>
+
+        <!-- 异常场景紧急熔断告警横幅 -->
+        <div class="emergency-banner hidden" id="emergency-alert-banner">
+            <div class="banner-content">
+                <i class="fa-solid fa-triangle-exclamation text-danger blink"></i>
+                <span id="emergency-banner-text">【P0 级告警】核心爆款【青岛纯生500ml*12】缺货>6小时！系统已自动下发 5 公里跨仓调拨指令（45分钟到位）。</span>
+            </div>
+            <button class="btn btn-sm btn-outline-danger" id="btn-handle-emergency">一键跳转追踪</button>
+        </div>
+
+        <!-- 主体布局 -->
+        <div class="main-body">
+            <!-- 左侧控制面板导航 -->
+            <nav class="sidebar">
+                <div class="nav-section-title">核心管控模块</div>
+                <ul class="nav-menu">
+                    <li class="nav-item active" data-tab="tab-overview">
+                        <i class="fa-solid fa-chart-line"></i>
+                        <span>全盘监控与 DuPont 归因</span>
+                    </li>
+                    <li class="nav-item" data-tab="tab-sku-matrix">
+                        <i class="fa-solid fa-boxes-stacked"></i>
+                        <span>商品四象限与最优容量</span>
+                    </li>
+                    <li class="nav-item" data-tab="tab-pricing">
+                        <i class="fa-solid fa-tags"></i>
+                        <span>价格弹性与品牌控价</span>
+                    </li>
+                    <li class="nav-item" data-tab="tab-subsidy-ue">
+                        <i class="fa-solid fa-hand-holding-dollar text-warning"></i>
+                        <span>补贴效率与全成本 UE</span>
+                    </li>
+                    <li class="nav-item" data-tab="tab-supplier">
+                        <i class="fa-solid fa-truck-field"></i>
+                        <span>供应商 100分评分与 ROP</span>
+                    </li>
+                    <li class="nav-item highlight-tab" data-tab="tab-strategy-tracking">
+                        <i class="fa-solid fa-list-check text-warning"></i>
+                        <span>策略执行追踪 (PDCA)</span>
+                    </li>
+                </ul>
+
+                <div class="nav-section-title mt-4">中台工具箱 & 设定</div>
+                <div class="sidebar-card">
+                    <div class="card-header-sm"><i class="fa-solid fa-gears"></i> 决策引擎配置 (V3.1)</div>
+                    <div class="config-item">
+                        <label>数据刷新模式</label>
+                        <select id="cfg-data-refresh-mode" class="form-control">
+                            <option value="T0">T+0 小时级刷新</option>
+                            <option value="T1">T+1 离线批处理</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>品牌控价底线保护</label>
+                        <select id="cfg-brand-constraint-switch" class="form-control">
+                            <option value="ON">开启三重约束保护</option>
+                            <option value="OFF">仅按市场纯弹性</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>汰换周转门槛 (天)</label>
+                        <input type="number" id="cfg-shelf-days" value="45" class="form-control">
+                    </div>
+                </div>
+            </nav>
+
+            <!-- 右侧主展示区 -->
+            <main class="content-area">
+                
+                <!-- 模块一：全盘经营监控、DuPont 定量归因与🌙夜间高峰预测 -->
+                <section class="tab-panel active" id="tab-overview">
+                    <div class="kpi-grid">
+                        <div class="kpi-card highlight-yellow">
+                            <div class="kpi-header">
+                                <span id="kpi-gmv-card-title">16:00 准实时 GMV (全国大盘)</span>
+                                <i class="fa-solid fa-sack-dollar text-warning"></i>
+                            </div>
+                            <div class="kpi-value" id="kpi-gmv">¥102.5万</div>
+                            <div class="kpi-meta">
+                                目标: <span id="kpi-gmv-target">¥300.0万</span> | 达成率: <strong id="kpi-gmv-rate" class="text-warning">34.2%</strong>
+                            </div>
+                            <div class="kpi-sub">🌙 夜间高峰预测: <span class="text-success" id="kpi-night-peak-pct">68.5%</span> (18点-02点)</div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>实时订单量 (T+0)</span><i class="fa-solid fa-cart-shopping"></i></div>
+                            <div class="kpi-value" id="kpi-orders">0.87万单</div>
+                            <div class="kpi-meta">目标: <span id="kpi-orders-target">2.50万单</span> | 达成率: <strong id="kpi-orders-rate" class="text-warning">34.6%</strong></div>
+                            <div class="kpi-sub">履约平均耗时: <span class="text-success">14.2 分钟</span></div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>实时进店 CVR</span><i class="fa-solid fa-filter"></i></div>
+                            <div class="kpi-value text-danger" id="kpi-cvr">4.82% <i class="fa-solid fa-triangle-exclamation text-warning"></i></div>
+                            <div class="kpi-meta">目标阈值: 5.00% | 缺口: -0.18pt</div>
+                            <div class="kpi-sub">客单价 AOV: <strong id="kpi-aov-val">¥118.36</strong></div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>实时缺货率 (OOS)</span><i class="fa-solid fa-warehouse"></i></div>
+                            <div class="kpi-value" id="kpi-oos">3.20%</div>
+                            <div class="kpi-meta">健康警戒线: &lt; 5.0% (正常)</div>
+                            <div class="kpi-sub">⇄ 跨仓调拨协同: <span class="text-success">已就绪 (含运费覆盖)</span></div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>🏷️ 一瓶一码鉴真率</span><i class="fa-solid fa-shield-halved text-success"></i></div>
+                            <div class="kpi-value text-success">99.8%</div>
+                            <div class="kpi-meta">扫码激活率: 96.5%</div>
+                            <div class="kpi-sub">正品保真防伪: 正常</div>
+                        </div>
+
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>断货机会损失预估</span><i class="fa-solid fa-circle-minus text-danger"></i></div>
+                            <div class="kpi-value text-danger" id="kpi-oos-loss">¥28.5万</div>
+                            <div class="kpi-meta">基于过去14天日均动销推算</div>
+                            <div class="kpi-sub">受影响区域: <span id="kpi-affected-region">全国/多仓</span></div>
+                        </div>
+                    </div>
+
+                    <!-- DuPont 因素贡献度归因模拟器与图表 -->
+                    <div class="panel-grid grid-2-1 mt-4">
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-diagram-project"></i> DuPont 因素定量归因 (<span id="dupont-region-title" class="text-primary">全国大盘</span>)</h3>
+                                <span class="badge badge-info">Flink 实时流全微分 + 品类结构效应</span>
+                            </div>
+                            
+                            <div class="slider-controls">
+                                <div class="slider-group">
+                                    <label>流量变动 (Exposure UV): <strong id="lbl-traffic-delta">-2,500 UV</strong></label>
+                                    <input type="range" id="sld-traffic-delta" min="-10000" max="10000" step="500" value="-2500" class="form-range">
+                                </div>
+                                <div class="slider-group">
+                                    <label>转化率变动 (CVR): <strong id="lbl-cvr-delta">-0.30 pt</strong></label>
+                                    <input type="range" id="sld-cvr-delta" min="-2.0" max="2.0" step="0.05" value="-0.30" class="form-range">
+                                </div>
+                                <div class="slider-group">
+                                    <label>客单价变动 (AOV): <strong id="lbl-aov-delta">-¥1.50</strong></label>
+                                    <input type="range" id="sld-aov-delta" min="-20.0" max="20.0" step="0.5" value="-1.5" class="form-range">
+                                </div>
+                            </div>
+
+                            <div class="attribution-results mt-3">
+                                <div class="res-item">
+                                    <div class="res-label">流量变动贡献</div>
+                                    <div class="res-val" id="res-traffic-contrib">-¥7.20万元</div>
+                                    <div class="res-pct" id="res-traffic-pct">54.7% 影响比</div>
+                                </div>
+                                <div class="res-item">
+                                    <div class="res-label">转化率变动贡献</div>
+                                    <div class="res-val" id="res-cvr-contrib">-¥4.50万元</div>
+                                    <div class="res-pct" id="res-cvr-pct">34.2% 影响比</div>
+                                </div>
+                                <div class="res-item">
+                                    <div class="res-label">客单价变动贡献</div>
+                                    <div class="res-val" id="res-aov-contrib">-¥1.45万元</div>
+                                    <div class="res-pct" id="res-aov-pct">11.1% 影响比</div>
+                                </div>
+                                <div class="res-item total">
+                                    <div class="res-label">GMV 总变动量</div>
+                                    <div class="res-val text-danger" id="res-total-delta">-¥13.15万元</div>
+                                    <div class="res-pct">校验和 100%</div>
+                                </div>
+                            </div>
+
+                            <div class="chart-container mt-4" style="height: 240px;">
+                                <canvas id="chart-dupont-waterfall"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 右侧：《歪马经营日报》自动生成的 Markdown 简报 -->
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-file-contract"></i> T+0 实时归因诊断简报</h3>
+                                <button class="btn btn-sm btn-outline" id="btn-copy-daily-report"><i class="fa-regular fa-copy"></i> 复制简报</button>
+                            </div>
+                            <div class="markdown-preview-box" id="daily-report-markdown"></div>
+                        </div>
+                    </div>
+
+                    <!-- Top 10 断货损失表格、跨仓急调与 ROP 补货 -->
+                    <div class="dashboard-card mt-4">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-triangle-exclamation text-danger"></i> Top 10 缺货商品、跨仓急调与 GMV 机会损失追踪</h3>
+                            <div class="btn-group gap-2">
+                                <button class="btn btn-sm btn-outline-primary" id="btn-trigger-cross-warehouse">
+                                    <i class="fa-solid fa-right-left"></i> ⇄ 跨仓应急调拨 (检索 5km 姐妹仓)
+                                </button>
+                                <button class="btn btn-sm btn-primary" id="btn-trigger-link-m1-m4">
+                                    <i class="fa-solid fa-bolt"></i> 联动触发：生成加急补货单并跳转 ROP (模块四)
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-oos-loss">
+                                <thead>
+                                    <tr>
+                                        <th>SKU ID</th>
+                                        <th>商品名称</th>
+                                        <th>一级品类</th>
+                                        <th>缺货门店数</th>
+                                        <th>累计缺货时长(小时)</th>
+                                        <th>过去14天日均销量</th>
+                                        <th>预估损失 GMV (元)</th>
+                                        <th>主子供应商</th>
+                                        <th>状态/动作</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 模块二：商品四象限策略与前置仓最优 SKU 数量容量模型 (572个) -->
+                <section class="tab-panel" id="tab-sku-matrix">
+                    <div class="panel-grid grid-2-1">
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-chart-pie"></i> 全品类 SKU 四象限矩阵 (<span id="quadrant-region-label" class="text-primary">全国大盘维度</span>)</h3>
+                                <div class="legend-tags">
+                                    <span class="tag tag-scale">规模品</span>
+                                    <span class="tag tag-flow">流量品</span>
+                                    <span class="tag tag-profit">利润品</span>
+                                    <span class="tag tag-nurture">培育品</span>
+                                </div>
+                            </div>
+                            <div class="chart-container" style="height: 380px;">
+                                <canvas id="chart-sku-quadrant"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-filter-circle-xmark"></i> 自动汰换与容量算力 (含新品保护)</h3>
+                                <span class="badge badge-success">🛡️ 30天新品保护已开启</span>
+                            </div>
+                            <div class="form-group">
+                                <label>动销率门槛 (Sell-through Rate)</label>
+                                <input type="number" id="elim-sellthrough-input" value="0.05" step="0.01" class="form-control">
+                            </div>
+                            <div class="form-group mt-2">
+                                <label>毛利率下限 (Gross Margin)</label>
+                                <input type="number" id="elim-margin-input" value="0.10" step="0.01" class="form-control">
+                            </div>
+                            <div class="form-group mt-2">
+                                <label>汰换搁置天数 (45-60天周转)</label>
+                                <input type="number" id="elim-days-input" value="45" class="form-control">
+                            </div>
+                            <button class="btn btn-primary w-100 mt-3" id="btn-run-elimination">
+                                <i class="fa-solid fa-calculator"></i> 运行汰换与资金算力引擎
+                            </button>
+
+                            <div class="calc-summary-box mt-3">
+                                <div class="calc-item">
+                                    <span>推荐汰换 SKU 数量：</span>
+                                    <strong id="calc-elim-cnt" class="text-danger">38 个</strong>
+                                </div>
+                                <div class="calc-item">
+                                    <span>预计释放仓储资金：</span>
+                                    <strong id="calc-elim-funds" class="text-success">¥16.2 万元</strong>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-outline-primary w-100 mt-3" id="btn-trigger-link-m2-m3">
+                                <i class="fa-solid fa-right-left"></i> 联动触发：带入释放资金至补贴池 (模块六)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 前置仓最优 SKU 数量容量模型 (帕累托边际平衡) -->
+                    <div class="dashboard-card mt-4">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-cubes-stacked text-primary"></i> 前置仓最优 SKU 数量容量模型 (帕累托毛利贡献 vs 长尾成本交叉法)</h3>
+                            <span class="badge badge-info" id="wh-badge-info">边际毛利与长尾成本平衡点</span>
+                        </div>
+
+                        <!-- 仓型参数调节控制栏 -->
+                        <div class="grid-3 gap-3 mb-3 p-3 bg-light rounded" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-warehouse text-primary"></i> 仓型规格快捷预设</label>
+                                <select id="warehouse-type-select" class="form-control">
+                                    <option value="STANDARD" selected>🏢 标准主力前置仓 (150-250㎡ | 650库位 | ¥210/月)</option>
+                                    <option value="SMALL">🏬 社区敏捷小仓 (80-120㎡ | 400库位 | ¥260/月)</option>
+                                    <option value="FLAGSHIP">🏭 区域中心旗舰大仓 (300-500㎡ | 1000库位 | ¥160/月)</option>
+                                    <option value="CUSTOM">⚙️ 自定义仓体参数</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-boxes-stacked text-warning"></i> 前置仓物理库位上限 (个)</label>
+                                <input type="number" id="wh-capacity-limit" value="650" step="50" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fa-solid fa-coins text-danger"></i> 单 SKU 月均长尾运维成本 (元/月)</label>
+                                <input type="number" id="wh-longtail-cost" value="210" step="10" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="grid-3 gap-3 mb-3">
+                            <div class="kpi-card text-center">
+                                <small>前置仓物理库位上限</small>
+                                <h4 id="wh-limit-val">650 个</h4>
+                            </div>
+                            <div class="kpi-card text-center highlight-yellow">
+                                <small>当前算力推荐最优 SKU 数量</small>
+                                <h4 class="text-primary" id="optimal-sku-val">572 个</h4>
+                                <small class="text-muted" id="optimal-sku-sub">（边际毛利 = 边际长尾成本 ¥210/月）</small>
+                            </div>
+                            <div class="kpi-card text-center">
+                                <small>前置仓预计最大净贡献额</small>
+                                <h4 class="text-success" id="optimal-profit-val">¥28.4 万元/月</h4>
+                            </div>
+                        </div>
+                        <div class="chart-container" style="height: 260px;">
+                            <canvas id="chart-optimal-sku-pareto"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card mt-4">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-list-check"></i> 建议汰换商品清单 (含新品保护与季节豁免标记)</h3>
+                            <button class="btn btn-sm btn-outline" id="btn-export-elim-excel"><i class="fa-solid fa-file-excel"></i> 导出采销确认表 (Excel)</button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-elimination">
+                                <thead>
+                                    <tr>
+                                        <th>SKU ID</th>
+                                        <th>商品名称</th>
+                                        <th>品类</th>
+                                        <th>上架天数</th>
+                                        <th>近30天动销率</th>
+                                        <th>毛利率</th>
+                                        <th>四象限角色</th>
+                                        <th>库存占用金额</th>
+                                        <th>建议动作 / 豁免说明</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 模块三：价格弹性、品牌控价与🔍竞对实时价格抓取 (与 PRD UI 100% 对齐) -->
+                <section class="tab-panel" id="tab-pricing">
+                    <div class="sub-tab-bar mb-3">
+                        <button class="sub-tab active" id="btn-tab-single-pricing">单品定价与 3-Tier 品牌控价校验</button>
+                        <button class="sub-tab" id="btn-tab-batch-pricing"><i class="fa-solid fa-layer-group text-warning"></i> 批量 Top 50 SKU 调价与自动执行</button>
+                    </div>
+
+                    <div id="pricing-single-view">
+                        <!-- 上半部分：SKU 选择器卡片 + 竞对实时监控 Sparkline 卡片 -->
+                        <div class="panel-grid grid-2 gap-3 mb-3">
+                            <!-- 左上：SKU Selector 独立卡片 -->
+                            <div class="dashboard-card">
+                                <div class="card-title">
+                                    <h3><i class="fa-solid fa-magnifying-glass text-primary"></i> SKU Selector (商品快速选择与搜索)</h3>
+                                    <button class="btn btn-sm btn-outline" id="btn-add-custom-sku"><i class="fa-solid fa-plus"></i> 新增商品</button>
+                                </div>
+                                
+                                <!-- 搜索输入框与即时下拉建议 -->
+                                <div class="form-group mb-2">
+                                    <div class="searchable-select-wrapper" id="sku-searchable-select">
+                                        <div class="search-input-box">
+                                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                                            <input type="text" id="pricing-sku-search-input" class="form-control" placeholder="输入搜索：茅台 / 普五 / 纯生 / 奔富 / SKU编号..." autocomplete="off">
+                                            <i class="fa-solid fa-chevron-down dropdown-arrow" id="btn-toggle-sku-dropdown"></i>
+                                        </div>
+                                        <div class="search-dropdown-menu hidden" id="pricing-sku-dropdown-menu"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 品类快捷筛选胶囊 -->
+                                <div class="sku-category-pills" id="pricing-cat-pills">
+                                    <span class="sku-cat-pill active" data-cat="ALL">全部 (14)</span>
+                                    <span class="sku-cat-pill" data-cat="白酒">白酒</span>
+                                    <span class="sku-cat-pill" data-cat="啤酒">啤酒</span>
+                                    <span class="sku-cat-pill" data-cat="葡萄酒">葡萄酒</span>
+                                    <span class="sku-cat-pill" data-cat="洋酒/预调">洋酒/预调</span>
+                                </div>
+
+                                <!-- 动态交互商品卡片容器 -->
+                                <div class="sku-card-list" id="pricing-sku-card-container"></div>
+                            </div>
+
+                            <!-- 右上：Competitor Real-time Price Monitoring 竞对监控卡片 -->
+                            <div class="dashboard-card">
+                                <div class="card-title">
+                                    <h3><i class="fa-solid fa-eye text-danger"></i> Competitor Real-time Price Monitoring (竞对实时抓取)</h3>
+                                    <span class="badge badge-info">自动更新</span>
+                                </div>
+                                <div class="competitor-sparkline-row">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="tag tag-flow">酒小二</span>
+                                        <strong id="comp-jiuxiaoer-price">¥66.80</strong>
+                                    </div>
+                                    <div class="text-danger small font-weight-bold" id="comp-jiuxiaoer-diff">-1.8% 低于我方</div>
+                                    <span class="badge badge-warning" id="comp-jiuxiaoer-badge">预警区间</span>
+                                </div>
+                                <div class="competitor-sparkline-row">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="tag tag-scale">1919快喝</span>
+                                        <strong id="comp-1919-price">¥68.00</strong>
+                                    </div>
+                                    <div class="text-success small font-weight-bold" id="comp-1919-diff">0.0% 平价</div>
+                                    <span class="badge badge-success" id="comp-1919-badge">安全保价</span>
+                                </div>
+                                <div class="competitor-sparkline-row">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="tag tag-profit">酒便利</span>
+                                        <strong id="comp-jiubianli-price">¥69.00</strong>
+                                    </div>
+                                    <div class="text-primary small font-weight-bold" id="comp-jiubianli-diff">+1.5% 高于我方</div>
+                                    <span class="badge badge-success" id="comp-jiubianli-badge">优势区间</span>
+                                </div>
+
+                                <div class="alert alert-info mt-2 p-2" id="competitor-price-monitor-bar" style="font-size: 11px;">
+                                    <i class="fa-solid fa-circle-check text-success"></i> <strong>酒水即时零售竞对监测结论</strong>：
+                                    酒小二 <strong>¥66.80</strong> | 1919快喝 <strong>¥68.00</strong> | 酒便利 <strong>¥69.00</strong>（竞对加权均价 <strong>¥67.93</strong>）。我方当前定价 ¥68.00 处于优势区间，未触发强制封顶。
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 下半部分：3-Tier 价格约束层 + 需求弹性曲线 -->
+                        <div class="panel-grid grid-2-1">
+                            <!-- 3-Tier 定价约束层 -->
+                            <div class="dashboard-card">
+                                <div class="card-title">
+                                    <h3><i class="fa-solid fa-layer-group text-warning"></i> 3-Tier 价格约束体系 (理论 &rarr; 竞对 &rarr; 品牌底线)</h3>
+                                    <span class="badge badge-danger">Brand_Min_Price 底线锁定</span>
+                                </div>
+
+                                <div class="tier-constraint-box">
+                                    <div class="tier-label">
+                                        <span class="tier-tag">Tier 1</span>
+                                        <span>算法理论最优售价 (P* Theory)</span>
+                                    </div>
+                                    <div><strong id="tier1-price-val" class="text-primary">¥2,750.00</strong> <span class="badge badge-info">纯弹性拟合</span></div>
+                                </div>
+
+                                <div class="tier-constraint-box">
+                                    <div class="tier-label">
+                                        <span class="tier-tag" style="background:#faad14;">Tier 2</span>
+                                        <span>竞对价格动态封顶 (Cap &le; P_comp &times; 1.05)</span>
+                                    </div>
+                                    <div><strong id="tier2-price-val">¥2,992.50</strong> <span class="badge badge-success">未超上限</span></div>
+                                </div>
+
+                                <div class="tier-constraint-box tier-active">
+                                    <div class="tier-label">
+                                        <span class="tier-tag" style="background:#f5222d;">Tier 3</span>
+                                        <span>品牌方最低限价强制保底 (Brand Min)</span>
+                                    </div>
+                                    <div><strong id="tier3-price-val" class="text-danger">¥2,499.00</strong> <span class="badge badge-danger">强制生效</span></div>
+                                </div>
+
+                                <div class="grid-2 gap-2 mt-3">
+                                    <div class="form-group">
+                                        <label>边际采购成本 (MC)</label>
+                                        <input type="number" id="pricing-mc-input" value="2100.0" step="0.5" class="form-control">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>品牌方最低限价 (Brand Min)</label>
+                                        <input type="number" id="pricing-brand-min-input" value="2499.0" step="0.5" class="form-control">
+                                    </div>
+                                </div>
+
+                                <div class="elasticity-res-card mt-3">
+                                    <div class="grid-3 text-center">
+                                        <div><small>拟合价格弹性 (Ed)</small><h4 id="res-ed-val" class="text-primary">-0.40</h4></div>
+                                        <div><small>最终建议售价 (P* Final)</small><h4 id="res-pstar-val" class="text-success">¥2,499.00</h4></div>
+                                        <div><small>定价约束来源</small><h4 id="res-pricing-strategy" class="text-danger">品牌限价底线保护</h4></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 需求弹性模拟曲线与收益预估 -->
+                            <div class="dashboard-card">
+                                <div class="card-title">
+                                    <h3><i class="fa-solid fa-chart-area text-primary"></i> Price Elasticity Demand Curve</h3>
+                                </div>
+                                <div class="chart-container" style="height: 200px;">
+                                    <canvas id="chart-elasticity-curve"></canvas>
+                                </div>
+                                <div class="calc-summary-box mt-2">
+                                    <div class="calc-item"><span>预计日销订单量：</span><strong class="text-primary">125 件/日</strong></div>
+                                    <div class="calc-item"><span>预计月贡献 GMV：</span><strong class="text-success">¥93.7 万元</strong></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="pricing-batch-view" class="hidden">
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-bolt text-warning"></i> 品类 Top 50 SKU 调价空间与品牌控价校验</h3>
+                                <button class="btn btn-primary btn-sm" id="btn-run-batch-pricing"><i class="fa-solid fa-play"></i> 一键批量跑全品类 P*</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="data-table" id="table-batch-pricing">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU ID</th>
+                                            <th>商品名称</th>
+                                            <th>品类</th>
+                                            <th>当前售价</th>
+                                            <th>边际成本 MC</th>
+                                            <th>品牌限价</th>
+                                            <th>最终 P*</th>
+                                            <th>约束来源</th>
+                                            <th>Real_ROI</th>
+                                            <th>推送营销</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 模块六：补贴效率优化与精细化全成本 (UE) 模型 (与 PRD UI 100% 对齐) -->
+                <section class="tab-panel" id="tab-subsidy-ue">
+                    <div class="panel-grid grid-2-1">
+                        <!-- 左侧：1 元补贴边际效益 ROI 曲线 -->
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-hand-holding-dollar text-warning"></i> Marginal Subsidy ROI Optimization Curve (单品补贴边际效益)</h3>
+                                <span class="badge badge-info">基于价格弹性的最优补贴测算</span>
+                            </div>
+                            <div class="grid-2 gap-3 mb-2">
+                                <div class="form-group">
+                                    <label>选择商品角色进行敏感度测算</label>
+                                    <select id="sub-role-select" class="form-control">
+                                        <option value="流量品">流量品 (如: 青岛纯生/经典雪花 - 高弹性 | 主力引流)</option>
+                                        <option value="规模品">规模品 (如: 普五/剑南春 - 中弹性 | 营收基本盘)</option>
+                                        <option value="利润品">利润品 (如: 奔富红酒/野格 - 低弹性 | 盈利支柱)</option>
+                                        <option value="培育品">培育品 (如: 歪马原浆精酿/低度果酒新品 - 探索期)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>单品基准售价 / 采购成本</label>
+                                    <div class="grid-2 gap-2">
+                                        <input type="number" id="sub-unit-price" value="68.0" class="form-control" placeholder="售价">
+                                        <input type="number" id="sub-unit-cost" value="44.5" class="form-control" placeholder="成本">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="chart-container" style="height: 240px;">
+                                <canvas id="chart-marginal-subsidy"></canvas>
+                            </div>
+                            <div class="alert alert-success mt-2 p-2" id="marginal-sub-recommendation" style="font-size: 11px;">
+                                💡 <strong>单品最优补贴测算【流量品 (青岛纯生)】</strong>：单件补贴 <strong>¥8.00</strong> (占售价 11.8%) 时边际收益达到峰值（边际 ROI: <strong>2.85</strong>），增量 GMV 转化极高，适合作为主力引流款！
+                            </div>
+                        </div>
+
+                        <!-- 右侧：精细化单品全成本 (UE) 瀑布归集模型 -->
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-calculator text-primary"></i> Unit Economics (UE) Cost Breakdown (全成本拆解)</h3>
+                                <span class="badge badge-warning" id="ue-link-badge"><i class="fa-solid fa-link"></i> 实时联动左侧单品</span>
+                            </div>
+
+                            <!-- 联动基准信息展示卡 -->
+                            <div class="alert alert-info p-2 mb-2" id="ue-base-info" style="font-size: 11px;">
+                                📦 当前测算基准：<strong>【流量品 (青岛纯生)】</strong> | 售价: <strong id="ue-current-price">¥68.00</strong> | 进价: <strong id="ue-current-cost">¥44.50</strong>
+                            </div>
+
+                            <div class="form-group"><label>履约配送成本 (骑手配送+打包耗材)</label><input type="number" id="ue-fulfillment-cost" value="5.50" step="0.1" class="form-control"></div>
+                            <div class="form-group mt-2"><label>仓储操作与冷链温控分摊 (冷柜电费)</label><input type="number" id="ue-storage-cost" value="1.80" step="0.1" class="form-control"></div>
+                            <div class="form-group mt-2"><label>城市运营与管理固定分摊 (OH)</label><input type="number" id="ue-city-cost" value="2.20" step="0.1" class="form-control"></div>
+                            <div class="form-group mt-2">
+                                <label style="display:flex; justify-content:space-between;">
+                                    <span>营销发券补贴优惠额</span>
+                                    <span class="text-primary small" id="ue-sub-source-label"><i class="fa-solid fa-arrows-rotate"></i> 自动联动左侧最优补贴: ¥8.00</span>
+                                </label>
+                                <input type="number" id="ue-coupon-cost" value="8.00" step="0.5" class="form-control">
+                            </div>
+
+                            <div class="calc-summary-box mt-2">
+                                <div class="calc-item"><span>单件全口径总成本 (进价+冷链履约+补贴)：</span><strong id="ue-total-cost">¥62.00</strong></div>
+                                <div class="calc-item"><span>单件真实贡献净利：</span><strong id="ue-net-profit" class="text-success">¥6.00 (真实净利率 8.8%)</strong></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 全品类 SKU 全成本净利润与真实 UE 诊断表 -->
+                    <div class="dashboard-card mt-4">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-table-list"></i> Full-Cost SKU Health Diagnostic (全品类单品 UE 健康诊断表)</h3>
+                            <button class="btn btn-sm btn-outline" id="btn-export-ue-excel"><i class="fa-solid fa-file-excel"></i> 导出全成本 UE 表 (Excel)</button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-ue-costs">
+                                <thead>
+                                    <tr>
+                                        <th>SKU ID</th>
+                                        <th>商品名称</th>
+                                        <th>品类</th>
+                                        <th>售价</th>
+                                        <th>采购成本</th>
+                                        <th>履约成本</th>
+                                        <th>仓储分摊</th>
+                                        <th>城市分摊</th>
+                                        <th>补贴券</th>
+                                        <th>单件净利润</th>
+                                        <th>真实净利率</th>
+                                        <th>UE 健康度</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 模块四：供应商 100 分制评分卡 (履约优先) 与 ROP 安全库存应急补货 -->
+                <section class="tab-panel" id="tab-supplier">
+                    <div class="panel-grid grid-2-1 mb-3">
+                        <!-- 左侧：供应商 100 分制绩效看板 -->
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-award text-warning"></i> 供应商 100 分制履约评分卡 (履约占55%)</h3>
+                                <div class="grade-filters">
+                                    <button class="btn btn-sm btn-outline filter-btn active" data-grade="ALL">全部</button>
+                                    <button class="btn btn-sm btn-outline filter-btn" data-grade="A">A级 优质</button>
+                                    <button class="btn btn-sm btn-outline filter-btn" data-grade="B">B级 良好</button>
+                                    <button class="btn btn-sm btn-outline filter-btn" data-grade="C">C级 关注</button>
+                                    <button class="btn btn-sm btn-outline filter-btn" data-grade="D">D级 整改</button>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="data-table" id="table-supplier-score">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th style="min-width: 140px;">供应商名称</th>
+                                            <th>缺货率</th>
+                                            <th>及时率</th>
+                                            <th>进价优势</th>
+                                            <th>次品率</th>
+                                            <th>响应</th>
+                                            <th>得分</th>
+                                            <th>等级</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 右侧：采销约谈话术凭证中枢 -->
+                        <div class="dashboard-card">
+                            <div class="card-title">
+                                <h3><i class="fa-solid fa-comments-dollar text-primary"></i> 采销降价谈判凭证与约谈中枢</h3>
+                                <button class="btn btn-sm btn-outline" id="btn-copy-negotiation-script"><i class="fa-regular fa-copy"></i> 复制话术</button>
+                            </div>
+                            <div class="negotiation-box" id="negotiation-card">
+                                <div class="alert alert-warning p-2 mb-2">
+                                    <strong><i class="fa-solid fa-triangle-exclamation"></i> 约谈凭证 (保税区进口酒业代理 - D级)</strong>
+                                </div>
+                                <ul style="padding-left: 16px; font-size: 11px; line-height: 1.6;">
+                                    <li><strong>缺货率严重超标 (扣16.8分)</strong>：实际缺货率 <strong>4.8%</strong>（远超 2.0% 基准线），直接导致夜间断货。</li>
+                                    <li><strong>进货价偏高</strong>：进价高于市场直供均价 <strong>+4.5%</strong>，利润空间被压缩。</li>
+                                    <li><strong>约谈策略话术</strong>：“基于中台 100 分制评分卡，贵司综合评分仅 <strong>46分 (D级)</strong>。请在 3 个工作日内提升保供率至 98%，否则将把 20% 采购份额分流至备选供应商。”</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 下方：ROP 安全库存监控与应急补货触发清单表 -->
+                    <div class="dashboard-card">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-boxes-packing text-primary"></i> ROP 安全库存监控与应急补货触发清单 (Reorder Point Trigger)</h3>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="badge badge-danger" style="font-size:11px;">🔴 14 个 SKU 触发安全库存红线</span>
+                                <button class="btn btn-sm btn-primary" id="btn-export-rop-list">
+                                    <i class="fa-solid fa-file-export"></i> 导出 ROP 紧急补货单并写入策略
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-rop-triggers">
+                                <thead>
+                                    <tr>
+                                        <th>SKU ID</th>
+                                        <th>商品名称</th>
+                                        <th>前置仓门店</th>
+                                        <th>当前库存</th>
+                                        <th>安全库存 (ROP)</th>
+                                        <th>缺口补货量</th>
+                                        <th>主子供应商</th>
+                                        <th>建议补货方式</th>
+                                        <th>预警状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 模块五：策略执行追踪看板 (PDCA 闭环 Tab - 与 PRD UI 100% 对齐) -->
+                <section class="tab-panel" id="tab-strategy-tracking">
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>待确认策略数</span><i class="fa-solid fa-hourglass-start text-warning"></i></div>
+                            <div class="kpi-value" id="track-pending-cnt">3 <span class="text-warning" style="font-size:12px;">项</span></div>
+                            <div class="kpi-meta">需品类采销经理复核确认</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>执行中策略数</span><i class="fa-solid fa-spinner text-primary"></i></div>
+                            <div class="kpi-value" id="track-running-cnt">8 <span class="text-primary" style="font-size:12px;">项</span></div>
+                            <div class="kpi-meta">在途急调与在架促销中</div>
+                        </div>
+                        <div class="kpi-card highlight-yellow">
+                            <div class="kpi-header"><span>策略落地率 (Execution Rate)</span><i class="fa-solid fa-circle-check text-success"></i></div>
+                            <div class="kpi-value" id="track-execution-rate">88.5%</div>
+                            <div class="kpi-meta">目标: &ge;85.0% (已达标)</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span>策略有效率 (Effective Rate)</span><i class="fa-solid fa-chart-line text-success"></i></div>
+                            <div class="kpi-value text-success" id="track-effective-rate">92.0%</div>
+                            <div class="kpi-meta">T+3 业务效果回填达标率</div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card mt-4">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-list-check"></i> 策略执行追踪看板 (PDCA 业务闭环追踪列表)</h3>
+                            <button class="btn btn-sm btn-outline" id="btn-refresh-tracking"><i class="fa-solid fa-arrows-rotate"></i> 刷新策略状态</button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-strategy-tracking">
+                                <thead>
+                                    <tr>
+                                        <th>策略 ID</th>
+                                        <th>策略类型</th>
+                                        <th>责任人</th>
+                                        <th>执行状态</th>
+                                        <th>预期业务目标</th>
+                                        <th>实际达成效果</th>
+                                        <th>24h 飞书监控</th>
+                                        <th>操作/流转</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                <!-- 模块七：AI Copilot 智能助手中枢 (Hive SQL / Python 代码与简报生成) -->
+                <section class="tab-panel" id="tab-ai-copilot">
+                    <div class="dashboard-card">
+                        <div class="card-title">
+                            <h3><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> 采销中台 AI Copilot 智能中枢 (算力 & 代码自动生成)</h3>
+                            <span class="badge badge-success">GPT-4o / Claude 3.5 Sonnet 模型就绪</span>
+                        </div>
+
+                        <div class="prompt-chips mb-3">
+                            <span class="chip" data-prompt="🍺 华东区啤酒缺货分析与约谈">🍺 华东区啤酒缺货分析与约谈</span>
+                            <span class="chip" data-prompt="🎟️ 识别高误伤补贴活动">🎟️ 识别高误伤补贴活动</span>
+                            <span class="chip" data-prompt="✂️ 计算推荐淘汰SKU与资金">✂️ 计算推荐淘汰SKU与资金</span>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <div class="search-input-box" style="display:flex; gap:8px;">
+                                <input type="text" id="ai-input-text" class="form-control" placeholder="输入自然语言业务分析需求 (例如: 分析华东大区青岛纯生缺货原因并生成约谈话术)..." value="分析华东大区青岛纯生缺货原因并生成约谈话术">
+                                <button class="btn btn-primary" id="btn-submit-ai"><i class="fa-solid fa-paper-plane"></i> 智能生成</button>
+                            </div>
+                        </div>
+
+                        <div class="panel-grid grid-2 gap-3 mt-3">
+                            <!-- SQL / 代码输出 -->
+                            <div>
+                                <div class="code-accordion-header"><i class="fa-solid fa-database"></i> 自动生成 Hive SQL 查询脚本</div>
+                                <pre class="code-box-pre" id="copilot-sql">-- 点击上方快捷 Prompt 或输入需求后自动生成 Hive SQL...</pre>
+
+                                <div class="code-accordion-header mt-3"><i class="fa-brands fa-python"></i> 自动生成 Python 归因与可视化代码</div>
+                                <pre class="code-box-pre" id="copilot-python"># 点击上方快捷 Prompt 自动生成 Python 归因模型代码...</pre>
+                            </div>
+
+                            <!-- 业务简报与话术输出 -->
+                            <div>
+                                <div class="code-accordion-header"><i class="fa-solid fa-file-invoice"></i> 智能业务简报与采销约谈话术</div>
+                                <div class="markdown-preview-box" id="copilot-brief" style="height: 380px;">
+                                    <p class="text-muted">请点击上方 Prompt 标签或输入分析指令生成策略输出。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- 全局 Toast 提示容器 -->
+    <div id="toast-container"></div>
+
+    <!-- 全局右下角悬浮 AI Agent 助手 -->
+    <div class="floating-ai-widget" id="floating-ai-trigger">
+        <i class="fa-solid fa-headset"></i>
+        <span>AI Agent 助手 (V3.1)</span>
+    </div>
+
+    <!-- 弹窗部分 -->
+    <div class="modal-backdrop hidden" id="target-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sliders"></i> 校准 / 手动修改经营目标</h3>
+                <button class="modal-close" id="btn-close-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label>月度 GMV 目标 (万元)</label><input type="number" id="modal-gmv-input" value="300.0" class="form-control"></div>
+                <div class="form-group mt-2"><label>月度订单量目标 (万单)</label><input type="number" id="modal-orders-input" value="2.50" class="form-control"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="btn-cancel-modal">取消</button>
+                <button class="btn btn-primary" id="btn-save-target">保存校准</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="custom-sku-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-plus-circle"></i> 新增 / 自定义商品定价与限价</h3>
+                <button class="modal-close" id="btn-close-sku-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label>商品名称</label><input type="text" id="custom-sku-name" placeholder="例如: 习酒 蛟龙 500ml" class="form-control"></div>
+                <div class="grid-2 gap-3 mt-2">
+                    <div class="form-group"><label>边际成本 MC (元)</label><input type="number" id="custom-sku-cost" value="220.0" class="form-control"></div>
+                    <div class="form-group"><label>品牌最低限价 (Brand Min)</label><input type="number" id="custom-sku-brand-min" value="299.0" class="form-control"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="btn-cancel-sku-modal">取消</button>
+                <button class="btn btn-primary" id="btn-save-custom-sku">保存并加入库</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 业务说明书与操作指引弹窗 (Business Manual Modal) -->
+    <div class="modal-backdrop hidden" id="workbench-manual-modal">
+        <div class="modal-box modal-box-lg">
+            <div class="modal-header" style="background:#fff9e6; border-bottom:1px solid #fde68a;">
+                <div>
+                    <h3 style="font-size:15px;"><i class="fa-solid fa-book-open text-primary mr-2"></i> 美团歪马送酒 · 采销中台经营决策工作台业务指引与操作说明</h3>
+                    <p class="text-muted small mb-0">一站式掌握采销端到端业务闭环、六大核心模块决策逻辑与常见业务避坑指南</p>
+                </div>
+                <button class="modal-close" id="btn-close-manual-modal">&times;</button>
+            </div>
+            
+            <div class="p-3 bg-white" style="border-bottom:1px solid var(--border-color);">
+                <div class="sub-tab-bar">
+                    <button class="sub-tab active" id="btn-tab-manual-workflow"><i class="fa-solid fa-arrows-spin text-primary"></i> 采销端到端工作闭环链路</button>
+                    <button class="sub-tab" id="btn-tab-manual-modules"><i class="fa-solid fa-list-check text-warning"></i> 六大模块实操速查手册</button>
+                    <button class="sub-tab" id="btn-tab-manual-faq"><i class="fa-solid fa-circle-question text-success"></i> 核心业务 FAQ 与避坑指南</button>
+                </div>
+            </div>
+
+            <div class="modal-body" style="max-height: 65vh; overflow-y: auto; padding: 20px;">
+                <!-- Tab 1: 端到端闭环链路 -->
+                <div id="manual-content-workflow">
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">1</div>
+                        <div>
+                            <strong>第一步：大盘监控与 DuPont 因素归因（盘大盘）</strong>
+                            <p class="text-muted small mt-1 mb-1">通过全微分 DuPont 公式 $GMV = Traffic \times CVR \times AOV$，在 1 分钟内定位业绩缺口的主因到底是客单价结构下移、转化率跌落还是流量不足，杜绝盲目归因。</p>
+                            <span class="tag tag-scale">对应模块：全盘监控与 DuPont 归因</span>
+                        </div>
+                    </div>
+
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">2</div>
+                        <div>
+                            <strong>第二步：四象限打标与 572 最优容量控损（优结构）</strong>
+                            <p class="text-muted small mt-1 mb-1">依据销量与毛利 P50 动态划定规模品、流量品、利润品与培育品。利用边际毛利与长尾成本交叉模型锁定前置仓 572 个黄金容量，一键清退 38 个低效滞销 SKU，释放库存资金注入补贴池。</p>
+                            <span class="tag tag-flow">对应模块：商品四象限与最优容量</span>
+                        </div>
+                    </div>
+
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">3</div>
+                        <div>
+                            <strong>第三步：价格弹性测算与 3-Tier 品牌控价（定价格）</strong>
+                            <p class="text-muted small mt-1 mb-1">针对每个商品拟合需求价格弹性 $Ed$，结合酒小二、1919快喝、酒便利 3 家垂直酒水竞对实时抓取数据（$\le 105\%$）与品牌最低控价（如普五锁定 ¥999 底线），输出最优售价并推送营销执行。</p>
+                            <span class="tag tag-profit">对应模块：价格弹性与品牌控价</span>
+                        </div>
+                    </div>
+
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">4</div>
+                        <div>
+                            <strong>第四步：1元补贴边际 ROI 仿真与全成本 UE 拆解（精补贴）</strong>
+                            <p class="text-muted small mt-1 mb-1">为选定单品绘制边际 ROI 峰值曲线（流量品建议深补引流，利润品严控 $\le 3\%$ 防薅羊毛）。扣除配送费(¥5.5)+仓储冷链(¥1.8)+固定分摊(¥2.2)后核算真实单件净利，防止虚假繁荣。</p>
+                            <span class="tag tag-scale">对应模块：补贴效率与全成本 UE</span>
+                        </div>
+                    </div>
+
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">5</div>
+                        <div>
+                            <strong>第五步：供应商 100 分制评分与 ROP 5km 跨仓急调（保供应）</strong>
+                            <p class="text-muted small mt-1 mb-1">以 55% 履约权重对供应商进行 A/B/C/D 级考核，一键生成 D 级约谈数据凭证与飞书话术。针对触发 ROP 红线的 14 个爆款，自动校验运费(¥25) vs 调拨净利(+¥191)后发起跨仓加急派车。</p>
+                            <span class="tag tag-flow">对应模块：供应商 100分评分与 ROP</span>
+                        </div>
+                    </div>
+
+                    <div class="workflow-step-card">
+                        <div class="step-badge-num">6</div>
+                        <div>
+                            <strong>第六步：PDCA 策略执行追踪看板与 AI 智能中台（拿结果）</strong>
+                            <p class="text-muted small mt-1 mb-1">所有调拨、调价、汰换与约谈动作自动写入 PDCA 看板，飞书审批流推送责任人，并在 T+3 自动回填真实 GMV 挽回金额，实现端到端策略闭环落地！</p>
+                            <span class="tag tag-profit">对应模块：策略执行追踪 (PDCA)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: 六大模块速查 -->
+                <div id="manual-content-modules" class="hidden">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:110px;">功能模块</th>
+                                    <th style="min-width:140px;">解决的核心痛点</th>
+                                    <th>关键输入参数</th>
+                                    <th>核心输出产物</th>
+                                    <th>操作建议</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>1. DuPont 归因</strong></td>
+                                    <td>业绩下滑不知责任在流量、转化还是客单</td>
+                                    <td>流量变动、CVR变动、客单价变动</td>
+                                    <td>4 列要素贡献金额与瀑布图</td>
+                                    <td>每日晨会定位大盘异常主因</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>2. 商品四象限</strong></td>
+                                    <td>盲目扩品导致前置仓爆仓与资金沉淀</td>
+                                    <td>动销率、毛利率、上架天数、季节豁免</td>
+                                    <td>572 最优容量、38 个清退清单、释放资金</td>
+                                    <td>每周一运行一次汰换并释放资金</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>3. 弹性与控价</strong></td>
+                                    <td>怕定贵没销量、定便宜破底线或被竞对倒挂</td>
+                                    <td>需求弹性 $Ed$、竞对行情、品牌限价</td>
+                                    <td>3-Tier 最优售价、调价执行</td>
+                                    <td>单品精细化调价与批量下发</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>4. 补贴与 UE</strong></td>
+                                    <td>发券老客薅羊毛，看似卖得多实际亏损</td>
+                                    <td>单品进售价、配送/仓储冷链/分摊成本</td>
+                                    <td>单品边际 ROI 峰值、单件真实净利</td>
+                                    <td>严控利润品补贴，重点补贴流量品</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>5. 供应商与 ROP</strong></td>
+                                    <td>缺货甩锅、谈判无数据依据、调拨亏运费</td>
+                                    <td>缺货率、到货及时率、溢价率、ROP阈值</td>
+                                    <td>100分评分卡、约谈凭证、跨仓调拨单</td>
+                                    <td>对 D 级约谈分流，对爆款一键急调</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>6. PDCA 追踪</strong></td>
+                                    <td>策略提了没人跟、上线之后没复盘</td>
+                                    <td>策略类型、责任人、预期目标</td>
+                                    <td>飞书协同、T+3 实际效果回填与复盘</td>
+                                    <td>每周跟踪落地率与有效达成率</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 3: 业务 FAQ 与避坑指南 -->
+                <div id="manual-content-faq" class="hidden">
+                    <div class="faq-card">
+                        <h4><i class="fa-solid fa-circle-question text-primary"></i> Q1：为什么奔富/茅台等【利润品】不能随意发大额补贴券？</h4>
+                        <p class="small text-muted mb-0"><strong>答：</strong> 高端酒水属于“低需求弹性商品”（$|Ed| < 0.4$），消费者购买是出于商务宴请或送礼面子，多给 10 块钱优惠并不会刺激用户多喝一瓶；大额优惠券绝大多数被本来就要买的老客顺手领走（老客薅羊毛）。因此其边际 ROI 极低且迅速衰减跌入负数，直接吞噬利润。</p>
+                    </div>
+
+                    <div class="faq-card">
+                        <h4><i class="fa-solid fa-circle-question text-primary"></i> Q2：为什么前置仓不是 SKU 越多越好？572 个黄金容量是如何算出来的？</h4>
+                        <p class="small text-muted mb-0"><strong>答：</strong> 前置仓物理空间与冷柜有限。每新增一个长尾酒水，不仅边际毛利贡献越来越低，还会带来每个 SKU 每月约 ¥210 的固定长尾成本（仓储库位占用、冷柜电费、理货拣选成本与临期报损）。当增加到第 572 个 SKU 时，新增的边际毛利恰好等于边际长尾成本（交叉平衡点），超过 572 个就会开始拉低前置仓整体净利润。</p>
+                    </div>
+
+                    <div class="faq-card">
+                        <h4><i class="fa-solid fa-circle-question text-primary"></i> Q3：5 公里跨仓应急调拨如何防止“救了缺货却亏了钱”？</h4>
+                        <p class="small text-muted mb-0"><strong>答：</strong> 系统在发起跨仓调拨前会自动执行利润覆盖校验：$\text{调拨净收益} = \text{调拨数量} \times (\text{售价} - \text{进价}) - \text{货运车运费(¥25)}$。例如天河仓向越秀仓调拨 120 箱纯生，毛利增量为 ¥216，扣除 ¥25 运费后净利仍为 +¥191，系统才会允许派车；若毛利不足以覆盖运费，系统将自动拦截报警并提示就近总仓大货补货。</p>
+                    </div>
+
+                    <div class="faq-card">
+                        <h4><i class="fa-solid fa-circle-question text-primary"></i> Q4：新品上架不到 30 天销量低，会不会被四象限误杀清退？</h4>
+                        <p class="small text-muted mb-0"><strong>答：</strong> 不会！系统内置了 **新品 30 天保护机制** 和 **季节性豁免规则**（如夏天啤酒、冬天白酒）。处于保护期内的商品即使销量或周转率处于低位，系统也会自动打上“🛡️新品保护”或“☀️季节豁免”标签，免于清退。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="btn-got-it-manual">我知道了，开始使用</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全局二次确认与联动弹窗 (Link Action Modal) -->
+    <div class="modal-backdrop hidden" id="link-action-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 id="link-modal-title"><i class="fa-solid fa-bolt text-warning"></i> 采销业务操作确认</h3>
+                <button class="modal-close" id="btn-close-link-modal">&times;</button>
+            </div>
+            <div class="modal-body" id="link-modal-body"></div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="btn-cancel-link-modal">取消</button>
+                <button class="btn btn-primary" id="btn-confirm-link-action">确认执行</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心脚本 (版本号 v=4.0.0) -->
+    <script src="js/waima_data.js?v=4.0.0"></script>
+    <script src="js/algorithms.js?v=4.0.0"></script>
+    <script src="js/code_templates.js?v=4.0.0"></script>
+    <script src="js/charts.js?v=4.0.0"></script>
+    <script src="js/app.js?v=4.0.0"></script>
+</body>
+</html>
