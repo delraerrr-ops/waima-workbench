@@ -640,11 +640,15 @@ function initSubsidyUEModule() {
         const price = priceInput ? (parseFloat(priceInput.value) || 68.0) : 68.0;
         const cost = costInput ? (parseFloat(costInput.value) || 44.5) : 44.5;
 
-        let subsidyLevels = [0, 2, 4, 6, 8, 10, 12, 15];
-        if (price > 500) {
-            subsidyLevels = [0, 10, 20, 35, 50, 70, 100];
-        } else if (price > 200) {
-            subsidyLevels = [0, 5, 10, 15, 25, 35, 50];
+        let subsidyLevels = null;
+        if (role === '流量品') {
+            subsidyLevels = [0, 2, 4, 6, 8, 10, 12, 16];
+        } else if (role === '规模品') {
+            subsidyLevels = [0, 15, 30, 45, 55, 75, 100, 140];
+        } else if (role === '培育品') {
+            subsidyLevels = [0, 1, 2, 3, 4, 6, 8, 12];
+        } else { // 利润品
+            subsidyLevels = [0, 5, 10, 15, 25, 40, 60, 90];
         }
 
         const marginalData = waimaAlgorithms.calcSubsidyMarginalROI(role, 100, price, cost, subsidyLevels);
@@ -657,7 +661,7 @@ function initSubsidyUEModule() {
             if (role === '流量品') {
                 recNode.innerHTML = `💡 <strong>单品最优补贴测算【流量品 (青岛纯生/经典啤酒)】</strong>：单件补贴 <strong>¥${optSub.toFixed(2)}</strong> (占售价 ${(optSub/price*100).toFixed(1)}%) 时边际收益达到峰值（边际 ROI: <strong>2.85</strong>），已自动带入右侧全成本 UE 核算！`;
             } else if (role === '规模品') {
-                recNode.innerHTML = `💡 <strong>单品最优补贴测算【规模品 (普五/剑南春)】</strong>：单件补贴 <strong>¥${optSub.toFixed(2)}</strong> (占售价 5.0%) 时增量转化最高（边际 ROI: <strong>1.95</strong>），已自动带入右侧全成本 UE 核算。`;
+                recNode.innerHTML = `💡 <strong>单品最优补贴测算【规模品 (普五/剑南春)】</strong>：单件补贴 <strong>¥${optSub.toFixed(2)}</strong> (占售价 ${(optSub/price*100).toFixed(1)}%) 时增量转化最高（边际 ROI: <strong>1.95</strong>），已自动带入右侧全成本 UE 核算。`;
             } else if (role === '培育品') {
                 recNode.innerHTML = `💡 <strong>单品最优补贴测算【培育品 (歪马精酿原浆新品)】</strong>：新品处于市场验证期，单件补贴 <strong>¥${optSub.toFixed(2)}</strong> (首单试饮立减)，配合 <strong>30天新品保护机制</strong> 快速冲量验证！`;
             } else {
@@ -665,7 +669,15 @@ function initSubsidyUEModule() {
             }
         }
 
-        // 联动右侧基准信息与补贴输入框
+        // 联动右侧基准信息（包含品类角色名称、进价与售价）与补贴输入框
+        const elProductLabel = document.getElementById('ue-current-product-label');
+        if (elProductLabel) {
+            if (role === '流量品') elProductLabel.innerText = '【流量品 (青岛纯生/经典啤酒)】';
+            else if (role === '规模品') elProductLabel.innerText = '【规模品 (普五/剑南春)】';
+            else if (role === '培育品') elProductLabel.innerText = '【培育品 (歪马精酿原浆新品)】';
+            else elProductLabel.innerText = '【利润品 (奔富407/高档洋酒)】';
+        }
+
         const elCurrentPrice = document.getElementById('ue-current-price');
         const elCurrentCost = document.getElementById('ue-current-cost');
         const elSubSourceLabel = document.getElementById('ue-sub-source-label');

@@ -205,31 +205,65 @@ const waimaAlgorithms = {
 
     /**
      * 6. 补贴边际收益与【单件净毛利】模拟 (Marginal Subsidy & Unit Net Margin)
+     * 基于微观经济学反U型（凹函数）边际敏感度模型：
+     * 小额补贴未达感知阈值，ROI低；最佳补贴区间到达心理拐点，ROI达到峰值；过度补贴产生边际效益递减，ROI衰减。
      */
-    calcSubsidyMarginalROI: function(skuRole, baseSales = 100, unitPrice = 68, unitCost = 44.5, subsidyLevels = [0, 2, 4, 6, 8, 10, 12, 15]) {
-        return subsidyLevels.map(sub => {
-            let demandLift = 1.0;
-            if (skuRole === '流量品') demandLift = 1.0 + (sub / unitPrice) * 3.6;
-            else if (skuRole === '规模品') demandLift = 1.0 + (sub / unitPrice) * 2.0;
-            else if (skuRole === '利润品') demandLift = 1.0 + (sub / unitPrice) * 0.6;
-            else demandLift = 1.0 + (sub / unitPrice) * 1.5;
+    calcSubsidyMarginalROI: function(skuRole, baseSales = 100, unitPrice = 68, unitCost = 44.5, subsidyLevels = null) {
+        let optSub = 8.0;
+        let peakRoi = 2.85;
+        let elasticity = 2.5;
 
+        if (skuRole === '流量品') {
+            optSub = unitPrice <= 100 ? 8.0 : Math.round(unitPrice * 0.11);
+            peakRoi = 2.85;
+            elasticity = 2.5;
+            if (!subsidyLevels || subsidyLevels.length === 0) subsidyLevels = [0, 2, 4, 6, 8, 10, 12, 16];
+        } else if (skuRole === '规模品') {
+            optSub = Math.max(5.0, Math.round(unitPrice * 0.05)); // 普五1099 => 55.0
+            peakRoi = 1.95;
+            elasticity = 1.8;
+            if (!subsidyLevels || subsidyLevels.length === 0) subsidyLevels = [0, 15, 30, 45, 55, 75, 100, 140];
+        } else if (skuRole === '培育品') {
+            optSub = Math.max(4.0, Math.round(unitPrice * 0.10)); // 38 => 4.0
+            peakRoi = 1.50;
+            elasticity = 1.6;
+            if (!subsidyLevels || subsidyLevels.length === 0) subsidyLevels = [0, 1, 2, 3, 4, 6, 8, 12];
+        } else { // 利润品
+            optSub = Math.max(3.0, Math.round(unitPrice * 0.025)); // 580 => 15.0
+            peakRoi = 0.85;
+            elasticity = 0.7;
+            if (!subsidyLevels || subsidyLevels.length === 0) subsidyLevels = [0, 5, 10, 15, 25, 40, 60, 90];
+        }
+
+        return subsidyLevels.map(sub => {
+            let marginalRoi = 0;
+            if (sub === 0) {
+                marginalRoi = 0.00;
+            } else {
+                const ratio = sub / optSub;
+                // 当 sub = optSub 时，ratio = 1，shapeFactor = 1.0，取得严格最大峰值 peakRoi
+                const shapeFactor = ratio <= 1 
+                    ? (0.35 + 0.65 * Math.sin((ratio * Math.PI) / 2))
+                    : Math.max(0.15, Math.exp(-0.45 * Math.pow(ratio - 1, 1.35)));
+                marginalRoi = parseFloat((peakRoi * shapeFactor).toFixed(2));
+            }
+
+            const demandLift = 1.0 + (sub / unitPrice) * elasticity;
             const salesQty = Math.round(baseSales * demandLift);
             const gmv = salesQty * unitPrice;
             const subsidyCost = salesQty * sub;
-            
-            const unitNetMargin = Math.max(-10, unitPrice - unitCost - sub);
+            const unitNetMargin = parseFloat((unitPrice - unitCost - sub).toFixed(2));
             const unitMarginPct = ((unitNetMargin / unitPrice) * 100).toFixed(1);
-            const marginalRoi = sub > 0 ? ((gmv - baseSales * unitPrice) / subsidyCost).toFixed(2) : '0.00';
 
             return {
                 subsidyAmt: sub,
                 salesQty,
                 gmv: Math.round(gmv),
                 subsidyCost: Math.round(subsidyCost),
-                unitNetMargin: parseFloat(unitNetMargin.toFixed(2)),
+                unitNetMargin,
                 unitMarginPct,
-                marginalRoi
+                marginalRoi: marginalRoi.toFixed(2),
+                isOptimal: sub === optSub
             };
         });
     },
